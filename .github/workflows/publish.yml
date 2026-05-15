@@ -1,0 +1,47 @@
+name: Publish
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Compile
+        run: npm run compile
+
+      - name: Package VSIX
+        run: npx --yes @vscode/vsce package --no-dependencies -o ai-diff-viewer.vsix
+
+      - name: Publish to VS Code Marketplace
+        if: env.VSCE_PAT != ''
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: npx --yes @vscode/vsce publish --no-dependencies --pat "$VSCE_PAT"
+
+      - name: Publish to Open VSX
+        if: env.OVSX_PAT != ''
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: npx --yes ovsx publish ai-diff-viewer.vsix --pat "$OVSX_PAT"
+
+      - name: Upload VSIX as release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ai-diff-viewer.vsix
+          generate_release_notes: true
