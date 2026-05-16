@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.2
+
+- Rewritten README with badges, feature table, configuration, commands, keybindings, and an upstream comparison.
+- Tighter marketplace description.
+- Gallery banner colour set for the marketplace listing.
+
 ## 1.0.1
 
 - Icon refresh.
