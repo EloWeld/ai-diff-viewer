@@ -7,6 +7,8 @@
 [![Rating](https://img.shields.io/visual-studio-marketplace/r/mtglitch.ai-diff-viewer?label=Rating)](https://marketplace.visualstudio.com/items?itemName=mtglitch.ai-diff-viewer)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
 
+![AI Diff Viewer — Session panel with pending changes and split-view diff editor](https://raw.githubusercontent.com/EloWeld/ai-diff-viewer/main/docs/hero.png)
+
 Works with **Claude Code**, **Codex**, **Qwen**, and any CLI that writes files to your workspace. Snapshot-based, hunk-aware, zero-config for non-Claude tools.
 
 ---

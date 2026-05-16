@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.3
+
+- Added hero screenshot to the README and the marketplace listing.
+
 ## 1.0.2
 
 - Rewritten README with badges, feature table, configuration, commands, keybindings, and an upstream comparison.

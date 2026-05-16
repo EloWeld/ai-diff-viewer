@@ -2,6 +2,7 @@ src/**
 .claude/**
 .vscode/**
 .github/**
+docs/**
 *.vsix
 node_modules/**
 !node_modules/@vscode/codicons/dist/**
