@@ -2,7 +2,7 @@
   "name": "ai-diff-viewer",
   "displayName": "AI Diff Viewer",
   "description": "Sharper diff review for AI CLI edits — inline highlights, hover-only file actions, and an optional split-view diff editor that stays out of your way.",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "publisher": "mtglitch",
   "license": "MIT",
   "repository": {

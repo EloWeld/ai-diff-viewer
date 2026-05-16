@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.1
+
+- Icon refresh.
+
 ## 1.0.0 — Initial fork release
 
 Forked from [konan-1947/ai-cli-diff-view](https://github.com/konan-1947/claude_diff_view_vscode_extension) at upstream `v1.0.12`.
