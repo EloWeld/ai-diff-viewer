@@ -1,75 +1,205 @@
 # AI Diff Viewer
 
-A sharper way to review what your AI CLI just changed.
+> Calm, in-place review of every file your AI CLI touches — inline hunks in the editor you already have open, with a split-view diff only when you ask for it.
 
-Works with **Claude Code**, **Codex**, **Qwen**, and any CLI that writes files to your workspace. Sits quietly in your sidebar, lights up the lines an AI touched, and lets you accept or revert hunk-by-hunk without the editor getting in your face.
+[![Marketplace](https://img.shields.io/visual-studio-marketplace/v/mtglitch.ai-diff-viewer?label=Marketplace&logo=visualstudiocode)](https://marketplace.visualstudio.com/items?itemName=mtglitch.ai-diff-viewer)
+[![Installs](https://img.shields.io/visual-studio-marketplace/i/mtglitch.ai-diff-viewer?label=Installs)](https://marketplace.visualstudio.com/items?itemName=mtglitch.ai-diff-viewer)
+[![Rating](https://img.shields.io/visual-studio-marketplace/r/mtglitch.ai-diff-viewer?label=Rating)](https://marketplace.visualstudio.com/items?itemName=mtglitch.ai-diff-viewer)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
 
-> Fork of [konan-1947/ai-cli-diff-view](https://github.com/konan-1947/claude_diff_view_vscode_extension) (MIT) with a non-intrusive UX, a configurable diff-editor policy, and a smarter Session panel.
+Works with **Claude Code**, **Codex**, **Qwen**, and any CLI that writes files to your workspace. Snapshot-based, hunk-aware, zero-config for non-Claude tools.
 
 ---
 
-## What's different
+## Why
 
-- **Auto-open diff editor is OFF by default.** Edits show as inline highlights inside the file you already have open — green / red gutter, hunks visible in place. The split-view diff opens **only when you ask for it**.
-- **A toggle for the auto-open behaviour** lives at the bottom of the Session panel and in VS Code settings (`ai-cli-diff-view.autoOpenDiffEditor`). Flip it back on if you want the classic flow.
-- **Session panel rows don't hijack clicks.** The row itself does nothing; on hover you get two explicit buttons:
-  - **Open file** — opens the file in a normal editor (still with inline highlights).
-  - **Open diff** — opens the split-view diff editor on demand.
-- **Per-file Accept / Revert on hover** (`✓` / `✗`) next to those buttons, plus **Accept All / Revert All** above the list.
-- **No more "I closed the diff, reopened the file, and the diff popped right back"** — that loop is gone.
+Most "AI diff" tools open a split-view diff editor every time the model writes a file, then keep re-opening it whenever you focus back. In a real review session that turns into:
 
-Everything else from the upstream extension is preserved: snapshot-based hunk detection, CodeLens Accept/Revert in the diff editor, Alt+H / Alt+L navigation, Claude CLI hooks installer.
+```
+edit → diff pops → close → click file → diff pops → close → context-switch → diff pops → …
+```
+
+AI Diff Viewer flips the default: AI edits land as **inline decorations** inside your normal editor — green/red gutter, hunk markers, CodeLens accept/revert — and the split-view diff is something **you open on demand**. The classic auto-open behaviour is one setting away.
+
+---
+
+## Features
+
+| | |
+|---|---|
+| **Inline review** | Hunks appear directly in the file. No editor hijacking, no popups, no extra tab. |
+| **Opt-in split-view** | Single setting (`autoOpenDiffEditor`) or in-panel toggle controls whether the diff editor opens automatically. |
+| **Session panel** | Tree of all pending files. Hover a row for `Open file` / `Open diff` / `Accept` / `Revert`. |
+| **Bulk actions** | `Accept All` / `Revert All` at the top of the pending list — one click to apply everything. |
+| **Hunk-level control** | CodeLens `Accept` / `Revert` above each hunk inside the diff editor (when you choose to open it). |
+| **Keyboard navigation** | `Alt+H` / `Alt+L` to jump between edited files; `Cmd+Shift+Y` / `Cmd+Shift+Z` to accept/revert active file. |
+| **Claude CLI hooks** | One-click install of pre/post hooks into `~/.claude/settings.json` for precise snapshotting. |
+| **Multi-tool** | Codex, Qwen, and any other CLI work out of the box via the workspace file watcher — no hooks required. |
+
+---
+
+## Install
+
+**Marketplace (recommended):**
+```
+ext install mtglitch.ai-diff-viewer
+```
+Or search **AI Diff Viewer** in the Extensions sidebar.
+
+**Manual (.vsix):**
+```bash
+code --install-extension ai-diff-viewer-X.Y.Z.vsix
+```
+
+After install: `Developer: Reload Window` (`Cmd+Shift+P`). The **AI Diff Viewer** activity-bar icon appears in the left dock.
+
+> If the icon isn't visible, right-click the activity bar → tick **AI Diff Viewer**. VS Code remembers hidden containers per-workspace.
 
 ---
 
 ## Quick start
 
-1. Install **AI Diff Viewer** from the VS Code Marketplace.
-2. Open the **AI Diff Viewer** activity-bar view in the sidebar.
-3. Click **Install CLI hooks** (one-time). This writes pre/post hooks into `~/.claude/settings.json` so the extension knows when Claude Code is about to write to a file.
-4. Run your AI CLI as normal. As it edits files, you'll see the inline highlights appear. Open the **Session** panel to review changes file-by-file.
+### Claude Code
 
-> Hook install currently targets Claude. Codex and Qwen still work via the workspace file watcher (no hooks needed) — slightly less precise on rapid multi-file writes, but functional.
+1. Open the **AI Diff Viewer** view in the sidebar.
+2. Click **Install CLI hooks** once. This appends pre/post hooks to `~/.claude/settings.json` so the extension can capture exact snapshots before/after each write.
+3. Run Claude as usual. Edited files show inline diff in the active editor; the **Session** panel lists them.
+4. Review each file:
+   - Hover the file row → click **Open file** (normal editor with inline diff) or **Open diff** (split-view).
+   - Hover → `✓` to accept the whole file, `✗` to revert.
+   - Or hit `Cmd+Shift+Y` / `Cmd+Shift+Z` while focused on the file.
+5. When happy → **Accept All** at the top of the panel.
+
+### Codex / Qwen / other CLIs
+
+No hook install needed. The workspace file watcher detects external writes and produces the same inline diff + Session panel entries. Slightly less precise on rapid multi-file writes (debounced 500 ms), but functional.
+
+---
+
+## Configuration
+
+| Setting | Default | Description |
+|---|---|---|
+| `ai-cli-diff-view.autoOpenDiffEditor` | `false` | Open the split-view diff editor automatically when the AI CLI writes a file. When `false`, only inline decorations are shown; use the Session panel or `AI Diff: Open Pending File (Diff)` to open the diff editor manually. |
+
+The same setting has a toggle at the bottom of the Session panel.
+
+---
+
+## Commands
+
+All commands are prefixed `AI Diff:` in the Command Palette.
+
+| Command | Action |
+|---|---|
+| `AI Diff: Open Pending File (Diff)` | Open file with pending changes in split-view diff. |
+| `AI Diff: Open Pending File (Editor)` | Open file in a normal editor (inline diff only). |
+| `AI Diff: Accept All Changes` | Accept all hunks in the active file. |
+| `AI Diff: Accept All Changes (All Files)` | Accept everything pending across all files. |
+| `AI Diff: Revert All Changes` | Revert all hunks in the active file. |
+| `AI Diff: Accept Hunk` / `Revert Hunk` | Single-hunk actions (also via CodeLens). |
+| `AI Diff: Next Edited File` / `Previous Edited File` | Cycle through pending files. |
+| `AI Diff: Install Claude CLI Hooks` | Write pre/post hooks to `~/.claude/settings.json`. |
+| `AI Diff: Start Claude Session` | Launch Claude from the Session panel. |
 
 ---
 
 ## Keybindings
 
-| Action                        | Default                |
-|-------------------------------|------------------------|
-| Accept all hunks in file      | `Cmd/Ctrl + Shift + Y` |
-| Revert all hunks in file      | `Cmd/Ctrl + Shift + Z` |
-| Previous edited file          | `Alt + H`              |
-| Next edited file              | `Alt + L`              |
-| Start Claude session (panel)  | `Cmd/Ctrl + Shift + A` |
-
-All commands also live under `AI Diff: …` in the Command Palette.
+| Action | macOS | Linux / Windows |
+|---|---|---|
+| Accept all hunks in file | `Cmd + Shift + Y` | `Ctrl + Shift + Y` |
+| Revert all hunks in file | `Cmd + Shift + Z` | `Ctrl + Shift + Z` |
+| Previous edited file | `Alt + H` | `Alt + H` |
+| Next edited file | `Alt + L` | `Alt + L` |
+| Start Claude session | `Cmd + Shift + A` | `Ctrl + Shift + A` |
 
 ---
 
-## Settings
+## How it works
 
-| Setting                                | Default | Effect |
-|----------------------------------------|---------|--------|
-| `ai-cli-diff-view.autoOpenDiffEditor`  | `false` | When true, opens the split-view diff editor automatically every time the AI CLI writes a file. When false (default), the extension only paints inline decorations and waits for an explicit **Open diff** action. |
+1. **Snapshot** — before the AI CLI writes a file, the extension records the original content (via Claude pre-hook or by reading from disk on `onDidChange`).
+2. **Detect** — after the write, the post-write content is compared against the snapshot. Hunks are computed with a Myers-like diff.
+3. **Render** — inline decorations and CodeLens are drawn on top of the live document. The Session panel is updated. The split-view diff is opened only if `autoOpenDiffEditor` is true or the user explicitly requested it.
+4. **Resolve** — `Accept` removes the snapshot (changes stay). `Revert` writes the original content back to disk. Both fire the same internal event, so the panel and decorations refresh automatically.
+
+State is persisted to extension storage, so pending diffs survive a window reload.
 
 ---
 
-## Why fork?
+## Fork of `ai-cli-diff-view`
 
-The upstream extension is excellent for the demo flow, but in a real review session the auto-opened diff editor competes with everything else you're doing — switching back to the file pops the diff back, closing it just to read the file is a loop. This fork makes the diff editor opt-in and keeps inline highlights as the default surface. Same engine underneath.
+This is a fork of [konan-1947/ai-cli-diff-view](https://github.com/konan-1947/claude_diff_view_vscode_extension) at upstream `v1.0.12`. All credit for the snapshot/hunk/CodeLens engine and the Claude hook installer goes to the original author.
 
-If you want the classic behaviour back, set `ai-cli-diff-view.autoOpenDiffEditor: true` (or toggle it in the Session panel) and the extension behaves exactly like upstream.
+| | Upstream `ai-cli-diff-view` | This fork (`ai-diff-viewer`) |
+|---|---|---|
+| Auto-open split-view diff | Always | Off by default, toggle |
+| Session panel row click | Opens diff editor | Does nothing (intentional) |
+| File row actions | None | Hover: `Open file`, `Open diff`, `Accept`, `Revert` |
+| Bulk Accept/Revert | Command palette only | One-click in panel header |
+| `openDiff(filePath, force)` | n/a | New `force` flag for manual entry points |
+
+If you want the classic upstream UX back, install this fork and set `ai-cli-diff-view.autoOpenDiffEditor: true`. The engine underneath is identical.
+
+---
+
+## Troubleshooting
+
+**Activity-bar icon doesn't show after install.**
+Right-click the activity bar → tick **AI Diff Viewer**, or `Developer: Reload Window`.
+
+**Inline diff doesn't appear when Claude edits a file.**
+Click **Install CLI hooks** in the Session panel. Then check the panel footer — it should say *CLI hooks: active*.
+
+**Hooks say "incomplete" or "not installed for this extension".**
+Run **AI Diff: Install Claude CLI Hooks** again. It re-writes both pre and post hooks pointing at the current extension install.
+
+**Working with Codex/Qwen and miss some edits.**
+External writes are debounced 500 ms. Tools that batch-write 100+ files in a fast burst may have a couple of files coalesced. Hook-based detection (Claude) is exact.
+
+**Accidentally clicked Accept All and want it back.**
+Accept doesn't modify disk — it just clears the pending state. The current file content is what's on disk. Revert would write the snapshot back; if you accepted, the snapshot is gone. Use git.
+
+---
+
+## Development
+
+```bash
+git clone https://github.com/EloWeld/ai-diff-viewer.git
+cd ai-diff-viewer
+npm install
+npm run compile          # build once
+npm run watch            # rebuild on save
+```
+
+In VS Code: `F5` opens an **Extension Development Host** window with the extension loaded.
+
+Package locally:
+```bash
+npx @vscode/vsce package --no-dependencies -o ai-diff-viewer.vsix
+code --install-extension ai-diff-viewer.vsix
+```
+
+---
+
+## Roadmap
+
+- [ ] Search/filter inside the Session pending tree.
+- [ ] Per-language hunk grouping (jump straight to TS files, etc).
+- [ ] Codex/Qwen-specific hook installers (parity with Claude).
+- [ ] Optional Telegram/Slack ping when a session finishes.
+
+PRs welcome.
 
 ---
 
 ## Credits
 
-- Original work: [konan-1947](https://github.com/konan-1947) — every line of the snapshot/hunk/CodeLens machinery is theirs.
-- Fork & UX changes: [MtGlitch](https://github.com/EloWeld).
+- **Upstream engine:** [konan-1947](https://github.com/konan-1947) — snapshots, hunks, CodeLens, Claude hooks.
+- **Fork & UX:** [MtGlitch / EloWeld](https://github.com/EloWeld).
 
-Bug reports and PRs welcome at <https://github.com/EloWeld/ai-diff-viewer>.
+Issues and feature requests → <https://github.com/EloWeld/ai-diff-viewer/issues>.
 
 ## License
 
-MIT — see [LICENSE](./LICENSE).
+[MIT](./LICENSE) — see `LICENSE` for the dual copyright notice.
