@@ -217,15 +217,34 @@ export function registerAllCommands(deps: CommandDeps): void {
 
       let settings: Record<string, unknown> = {};
       try {
-        settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+        const raw = fs.readFileSync(settingsPath, 'utf8');
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          settings = parsed as Record<string, unknown>;
+        }
       } catch {
-        // Ignore missing or invalid settings file; we will overwrite it.
+        // Missing or invalid settings — start from an empty object.
       }
 
-      settings['hooks'] = {
-        PreToolUse: [{ matcher, hooks: [{ type: 'command', command: `node "${preHook}"` }] }],
-        PostToolUse: [{ matcher, hooks: [{ type: 'command', command: `node "${postHook}"` }] }],
-      };
+      const existingHooks =
+        settings['hooks'] && typeof settings['hooks'] === 'object' && !Array.isArray(settings['hooks'])
+          ? { ...(settings['hooks'] as Record<string, unknown>) }
+          : {};
+
+      existingHooks['PreToolUse'] = mergePhase(
+        existingHooks['PreToolUse'],
+        matcher,
+        `node "${preHook}"`,
+        ['pre-tool-hook.js']
+      );
+      existingHooks['PostToolUse'] = mergePhase(
+        existingHooks['PostToolUse'],
+        matcher,
+        `node "${postHook}"`,
+        ['post-tool-hook.js']
+      );
+
+      settings['hooks'] = existingHooks;
 
       if (!fs.existsSync(settingsDir)) {
         fs.mkdirSync(settingsDir, { recursive: true });
@@ -237,4 +256,57 @@ export function registerAllCommands(deps: CommandDeps): void {
       );
     })
   );
+}
+
+/**
+ * Merge our hook block into one PreToolUse/PostToolUse phase array, preserving
+ * any unrelated entries already there. Existing entries that reference any of
+ * `ourHookFilenames` (i.e. previous installs of this extension, possibly from
+ * a different path) are stripped before our fresh block is appended.
+ */
+function mergePhase(
+  existingPhase: unknown,
+  matcher: string,
+  ourCommand: string,
+  ourHookFilenames: readonly string[]
+): unknown[] {
+  const source = Array.isArray(existingPhase) ? existingPhase : [];
+  const cleaned: unknown[] = [];
+
+  for (const block of source) {
+    if (!block || typeof block !== 'object') {
+      cleaned.push(block);
+      continue;
+    }
+    const blockObj = block as Record<string, unknown>;
+    const innerHooks = blockObj['hooks'];
+    if (!Array.isArray(innerHooks)) {
+      cleaned.push(block);
+      continue;
+    }
+    const filteredInner = innerHooks.filter((h) => !isOurHookEntry(h, ourHookFilenames));
+    if (filteredInner.length === 0) {
+      // Whole block belonged to us — drop it.
+      continue;
+    }
+    cleaned.push({ ...blockObj, hooks: filteredInner });
+  }
+
+  cleaned.push({
+    matcher,
+    hooks: [{ type: 'command', command: ourCommand }],
+  });
+  return cleaned;
+}
+
+function isOurHookEntry(entry: unknown, ourHookFilenames: readonly string[]): boolean {
+  if (!entry || typeof entry !== 'object') {
+    return false;
+  }
+  const cmd = (entry as { command?: unknown }).command;
+  if (typeof cmd !== 'string') {
+    return false;
+  }
+  const lower = cmd.toLowerCase();
+  return ourHookFilenames.some((name) => lower.includes(name.toLowerCase()));
 }

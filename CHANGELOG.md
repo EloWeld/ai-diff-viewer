@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.5
+
+- Fix: `Install / Reinstall CLI hooks` no longer wipes other Claude Code hooks (`Stop`, `UserPromptSubmit`, `SessionStart`, etc.) or unrelated `PreToolUse` / `PostToolUse` entries from `~/.claude/settings.json`. Existing hooks are preserved; only previous copies of this extension's hooks are replaced.
+
 ## 1.0.3
 
 - Added hero screenshot to the README and the marketplace listing.

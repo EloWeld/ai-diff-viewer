@@ -2,7 +2,7 @@
   "name": "ai-diff-viewer",
   "displayName": "AI Diff Viewer",
   "description": "Calm review of AI CLI edits — inline diff hunks in your normal editor, opt-in split-view diff, hover actions. For Claude Code, Codex, and Qwen.",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "publisher": "mtglitch",
   "license": "MIT",
   "pricing": "Free",
