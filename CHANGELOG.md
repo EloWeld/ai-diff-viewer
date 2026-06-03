@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.6
+
+- Added a **Git Diff** mode to the Session panel, switchable via a segmented toggle ("AI Diff | Git Diff"). The same tree view, but diffs are computed against the current git `HEAD` instead of the last-accepted AI snapshot — showing every uncommitted change (staged, unstaged, and untracked).
+- Git Diff mode: `Open diff` opens a split view of `HEAD` vs the working file; per-file `✓` marks a file as reviewed (hides it), `✗` discards changes (`git checkout HEAD -- <file>`); bulk `Mark All Reviewed` / `Discard All`.
+
 ## 1.0.5
 
 - Fix: `Install / Reinstall CLI hooks` no longer wipes other Claude Code hooks (`Stop`, `UserPromptSubmit`, `SessionStart`, etc.) or unrelated `PreToolUse` / `PostToolUse` entries from `~/.claude/settings.json`. Existing hooks are preserved; only previous copies of this extension's hooks are replaced.
