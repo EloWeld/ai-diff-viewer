@@ -2,9 +2,13 @@ import * as fs from 'fs';
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { DiffManager } from '../diff/diffManager';
+import { GitDiffProvider } from '../git/gitDiffProvider';
 import { detectOurClaudeHooks, hooksFullyActive } from '../claude/hookInstallDetect';
 
 type SessionState = 'idle' | 'running' | 'error';
+type ViewMode = 'ai' | 'git';
+
+const MODE_STATE_KEY = 'ai-cli-diff.viewMode';
 
 export class SessionPanelProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'ai-cli-diff-view.session';
@@ -13,15 +17,27 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider {
   private state: SessionState = 'idle';
   private lastPrompt = '';
   private errorMessage = '';
+  private mode: ViewMode;
+  /** File list của lần render git gần nhất — dùng cho accept-all/revert-all. */
+  private lastGitFiles: string[] = [];
+  private gitRefreshTimer?: ReturnType<typeof setTimeout>;
   private readonly diffDisposable: vscode.Disposable;
+  private readonly gitDisposable: vscode.Disposable;
   private readonly configDisposable: vscode.Disposable;
 
   constructor(
     private readonly diffManager: DiffManager,
+    private readonly gitDiffProvider: GitDiffProvider,
     private readonly context: vscode.ExtensionContext
   ) {
+    this.mode = context.workspaceState.get<ViewMode>(MODE_STATE_KEY, 'ai');
     this.diffDisposable = this.diffManager.onDidChangeDiffs(() => {
-      this.render();
+      if (this.mode === 'ai') {
+        this.render();
+      }
+    });
+    this.gitDisposable = this.gitDiffProvider.onDidChange(() => {
+      this.scheduleGitRefresh();
     });
     this.configDisposable = vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('ai-cli-diff-view.autoOpenDiffEditor')) {
@@ -32,7 +48,77 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider {
 
   dispose(): void {
     this.diffDisposable.dispose();
+    this.gitDisposable.dispose();
     this.configDisposable.dispose();
+    if (this.gitRefreshTimer) {
+      clearTimeout(this.gitRefreshTimer);
+    }
+  }
+
+  private scheduleGitRefresh(): void {
+    if (this.mode !== 'git') {
+      return;
+    }
+    if (this.gitRefreshTimer) {
+      clearTimeout(this.gitRefreshTimer);
+    }
+    this.gitRefreshTimer = setTimeout(() => this.render(), 400);
+  }
+
+  private async openGitDiff(absPath: string): Promise<void> {
+    try {
+      const originalUri = this.gitDiffProvider.buildOriginalUri(absPath);
+      const modifiedUri = vscode.Uri.file(absPath);
+      const title = `Git Diff: ${path.basename(absPath)}`;
+      await vscode.commands.executeCommand('vscode.diff', originalUri, modifiedUri, title, { preview: false });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      void vscode.window.showErrorMessage(`Git Diff: could not open file - ${message}`);
+    }
+  }
+
+  private async discardGitFile(absPath: string): Promise<void> {
+    const pick = await vscode.window.showWarningMessage(
+      `Discard changes in ${path.basename(absPath)}? This restores the file to its HEAD state.`,
+      { modal: true },
+      'Discard'
+    );
+    if (pick !== 'Discard') {
+      return;
+    }
+    try {
+      await this.gitDiffProvider.discard(absPath);
+      void vscode.window.showInformationMessage(`Discarded: ${path.basename(absPath)}`);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      void vscode.window.showErrorMessage(`Git Diff: discard failed - ${message}`);
+    }
+  }
+
+  private async discardAllGit(): Promise<void> {
+    const files = [...this.lastGitFiles];
+    if (files.length === 0) {
+      void vscode.window.showWarningMessage('No git changes to discard.');
+      return;
+    }
+    const pick = await vscode.window.showWarningMessage(
+      `Discard changes in ${files.length} file(s)? This restores them to their HEAD state.`,
+      { modal: true },
+      'Discard All'
+    );
+    if (pick !== 'Discard All') {
+      return;
+    }
+    let n = 0;
+    for (const p of files) {
+      try {
+        await this.gitDiffProvider.discard(p);
+        n++;
+      } catch {
+        // ignore individual failures
+      }
+    }
+    void vscode.window.showInformationMessage(`Discarded changes in ${n} file(s).`);
   }
 
   /** Re-read hook install state from disk (e.g. after installHooks). */
@@ -69,16 +155,37 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider {
         this.render();
       }
     });
-    webviewView.webview.onDidReceiveMessage((msg: { command?: string; path?: string }) => {
+    webviewView.webview.onDidReceiveMessage((msg: { command?: string; path?: string; mode?: string }) => {
+      if (msg.command === 'switchMode' && (msg.mode === 'ai' || msg.mode === 'git')) {
+        if (this.mode !== msg.mode) {
+          this.mode = msg.mode;
+          void this.context.workspaceState.update(MODE_STATE_KEY, this.mode);
+          this.render();
+        }
+        return;
+      }
+
       if (msg.command === 'openFile' && msg.path && typeof msg.path === 'string') {
-        void vscode.commands.executeCommand('ai-cli-diff-view.openPendingFile', msg.path);
+        if (this.mode === 'git') {
+          void this.openGitDiff(msg.path);
+        } else {
+          void vscode.commands.executeCommand('ai-cli-diff-view.openPendingFile', msg.path);
+        }
       } else if (msg.command === 'openFilePlain' && msg.path && typeof msg.path === 'string') {
         void vscode.commands.executeCommand('ai-cli-diff-view.openPendingFilePlain', msg.path);
       } else if (msg.command === 'installHooks') {
         void vscode.commands.executeCommand('ai-cli-diff-view.installHooks');
       } else if (msg.command === 'acceptAll') {
+        if (this.mode === 'git') {
+          this.gitDiffProvider.markAllReviewed(this.lastGitFiles);
+          return;
+        }
         void vscode.commands.executeCommand('ai-cli-diff-view.acceptAllChanges');
       } else if (msg.command === 'revertAll') {
+        if (this.mode === 'git') {
+          void this.discardAllGit();
+          return;
+        }
         void (async () => {
           const files = this.diffManager.getPendingFiles();
           if (files.length === 0) {
@@ -106,6 +213,10 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider {
         })();
       } else if (msg.command === 'acceptFile' && msg.path && typeof msg.path === 'string') {
         const filePath = msg.path;
+        if (this.mode === 'git') {
+          this.gitDiffProvider.markReviewed(filePath);
+          return;
+        }
         void (async () => {
           try {
             await this.diffManager.accept(filePath);
@@ -117,6 +228,10 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider {
         })();
       } else if (msg.command === 'revertFile' && msg.path && typeof msg.path === 'string') {
         const filePath = msg.path;
+        if (this.mode === 'git') {
+          void this.discardGitFile(filePath);
+          return;
+        }
         void (async () => {
           try {
             await this.diffManager.revert(filePath);
@@ -138,6 +253,10 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider {
   }
 
   private render(): void {
+    void this.renderAsync();
+  }
+
+  private async renderAsync(): Promise<void> {
     if (!this.view) {
       return;
     }
@@ -146,14 +265,31 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider {
       'media', 'file-icons'
     );
     const iconBase = this.view.webview.asWebviewUri(iconsDir).toString() + '/';
-    this.view.webview.html = this.buildHtml(iconBase);
+    const html = await this.buildHtml(iconBase);
+    if (this.view) {
+      this.view.webview.html = html;
+    }
   }
 
-  private buildHtml(iconBase: string): string {
-    const pending = this.diffManager.getPendingFiles();
+  private async buildHtml(iconBase: string): Promise<string> {
+    const isGit = this.mode === 'git';
+
+    let gitStatus: { hasRepo: boolean; files: string[] } = { hasRepo: true, files: [] };
+    if (isGit) {
+      gitStatus = await this.gitDiffProvider.getStatus();
+      this.lastGitFiles = gitStatus.files;
+    }
+
+    const pending = isGit ? gitStatus.files : this.diffManager.getPendingFiles();
     const treeModel = buildPendingTreeModel(pending);
     const pendingTreeHtml =
-      pending.length === 0 ? '' : renderPendingTreeHtml(treeModel, 0, iconBase);
+      pending.length === 0 ? '' : renderPendingTreeHtml(treeModel, 0, iconBase, this.mode);
+
+    const modeToggleHtml = `
+      <div class="mode-toggle" role="tablist">
+        <button type="button" class="mode-btn ${isGit ? '' : 'mode-active'}" data-mode="ai" role="tab" aria-selected="${isGit ? 'false' : 'true'}">AI Diff</button>
+        <button type="button" class="mode-btn ${isGit ? 'mode-active' : ''}" data-mode="git" role="tab" aria-selected="${isGit ? 'true' : 'false'}">Git Diff</button>
+      </div>`;
 
     let statusHtml = '';
     if (this.state === 'running') {
@@ -176,20 +312,35 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider {
       </div>`;
     }
 
+    const sectionLabel = isGit ? 'Changes vs HEAD' : 'Pending changes';
+    const emptyLabel = isGit
+      ? gitStatus.hasRepo
+        ? 'No changes vs HEAD (working tree clean)'
+        : 'Not a git repository in this workspace'
+      : 'No pending file changes';
+    const acceptAllLabel = isGit ? 'Mark All Reviewed' : 'Accept All';
+    const acceptAllTitle = isGit
+      ? 'Hide all listed files from the Git Diff list (does not touch git)'
+      : 'Accept all pending changes in every file';
+    const revertAllLabel = isGit ? 'Discard All' : 'Revert All';
+    const revertAllTitle = isGit
+      ? 'Discard changes in every file, restoring them to their HEAD state'
+      : 'Revert all pending changes in every file';
+
     const pendingBlock =
       pending.length === 0
-        ? `<div class="empty-pending">No pending file changes</div>`
+        ? `<div class="empty-pending">${escapeHtml(emptyLabel)}</div>`
         : `
       <div class="section-title">
-        <span>Pending changes</span>
+        <span>${escapeHtml(sectionLabel)}</span>
         <span class="badge">${pending.length}</span>
       </div>
       <div class="bulk-actions">
-        <button type="button" class="btn-bulk btn-bulk-accept" id="btn-accept-all" title="Accept all pending changes in every file">
-          <span class="btn-bulk-ico">&#10003;</span><span>Accept All</span>
+        <button type="button" class="btn-bulk btn-bulk-accept" id="btn-accept-all" title="${escapeAttr(acceptAllTitle)}">
+          <span class="btn-bulk-ico">&#10003;</span><span>${escapeHtml(acceptAllLabel)}</span>
         </button>
-        <button type="button" class="btn-bulk btn-bulk-revert" id="btn-revert-all" title="Revert all pending changes in every file">
-          <span class="btn-bulk-ico">&#10007;</span><span>Revert All</span>
+        <button type="button" class="btn-bulk btn-bulk-revert" id="btn-revert-all" title="${escapeAttr(revertAllTitle)}">
+          <span class="btn-bulk-ico">&#10007;</span><span>${escapeHtml(revertAllLabel)}</span>
         </button>
       </div>
       <div class="file-tree" id="file-tree">${pendingTreeHtml}</div>`;
@@ -604,17 +755,48 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider {
     transition: left 0.15s;
   }
   .toggle-on .toggle-knob { left: 16px; }
+
+  .mode-toggle {
+    display: flex;
+    gap: 2px;
+    padding: 2px;
+    border-radius: 6px;
+    background: var(--vscode-editor-inactiveSelectionBackground, rgba(128,128,128,0.12));
+    border: 1px solid var(--vscode-widget-border, rgba(128,128,128,0.25));
+  }
+  .mode-btn {
+    flex: 1;
+    padding: 5px 8px;
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.2;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    background: transparent;
+    color: var(--vscode-foreground);
+    opacity: 0.7;
+    transition: background 0.12s, opacity 0.12s;
+  }
+  .mode-btn:hover { opacity: 1; }
+  .mode-btn.mode-active {
+    background: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+    opacity: 1;
+  }
 </style>
 </head>
 <body>
   <div class="scroll-region">
+    ${modeToggleHtml}
     ${statusHtml}
     <div class="section">
       ${pendingBlock}
     </div>
   </div>
   <div class="bottom-stick">
-    ${autoOpenToggleHtml}
+    ${isGit ? '' : autoOpenToggleHtml}
     <button type="button" class="btn-install" id="btn-install" title="Write hooks to ~/.claude/settings.json">
       ${escapeHtml(installLabel)}
     </button>
@@ -668,6 +850,12 @@ export class SessionPanelProvider implements vscode.WebviewViewProvider {
     }
     document.getElementById('btn-install').addEventListener('click', function () {
       vscode.postMessage({ command: 'installHooks' });
+    });
+    document.querySelectorAll('.mode-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var m = btn.getAttribute('data-mode');
+        if (m) vscode.postMessage({ command: 'switchMode', mode: m });
+      });
     });
   </script>
 </body>
@@ -844,11 +1032,16 @@ function chevronSvg(down: boolean): string {
     : `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>`;
 }
 
-function renderPendingTreeHtml(node: TreeJson, depth: number, iconBase: string): string {
+function renderPendingTreeHtml(node: TreeJson, depth: number, iconBase: string, mode: ViewMode): string {
+  const isGit = mode === 'git';
+  const acceptTitle = isGit ? 'Mark as reviewed (hide from list)' : 'Accept all changes in this file';
+  const acceptLabel = isGit ? 'Mark reviewed' : 'Accept';
+  const revertTitle = isGit ? 'Discard changes (restore to HEAD)' : 'Revert all changes in this file';
+  const revertLabel = isGit ? 'Discard' : 'Revert';
   const indentPx = 2 + depth * 8;
   const chunks: string[] = [];
   for (const d of node.dirs) {
-    const inner = renderPendingTreeHtml(d.tree, depth + 1, iconBase);
+    const inner = renderPendingTreeHtml(d.tree, depth + 1, iconBase, mode);
     chunks.push(
       `<details class="tree-node" open>` +
         `<summary class="tree-row tree-row-folder" style="padding-left:${indentPx}px">` +
@@ -873,8 +1066,8 @@ function renderPendingTreeHtml(node: TreeJson, depth: number, iconBase: string):
         `<button type="button" class="btn-open btn-open-diff" data-action="openDiff" title="Open split-view diff editor">Open diff</button>` +
         `</span>` +
         `<span class="row-actions">` +
-        `<button type="button" class="row-action accept" data-action="accept" title="Accept all changes in this file" aria-label="Accept">&#10003;</button>` +
-        `<button type="button" class="row-action revert" data-action="revert" title="Revert all changes in this file" aria-label="Revert">&#10007;</button>` +
+        `<button type="button" class="row-action accept" data-action="accept" title="${escapeAttr(acceptTitle)}" aria-label="${escapeAttr(acceptLabel)}">&#10003;</button>` +
+        `<button type="button" class="row-action revert" data-action="revert" title="${escapeAttr(revertTitle)}" aria-label="${escapeAttr(revertLabel)}">&#10007;</button>` +
         `</span>` +
         `</div>`
     );

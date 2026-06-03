@@ -8,6 +8,7 @@ import { HunkCodeLensProvider } from './diff/hunkCodeLensProvider';
 import { registerAllCommands } from './commands/commandsRegistry';
 import { NavigationManager } from './diff/navigationManager';
 import { NavBarPanel } from './views/navBarPanel';
+import { GitDiffProvider } from './git/gitDiffProvider';
 
 export function activate(context: vscode.ExtensionContext): void {
   // CodeLens buttons (Accept/Revert hunk) are suppressed in diff editors by default.
@@ -18,7 +19,8 @@ export function activate(context: vscode.ExtensionContext): void {
   }
 
   const diffManager       = new DiffManager(context);
-  const sessionPanel      = new SessionPanelProvider(diffManager, context);
+  const gitDiffProvider   = new GitDiffProvider(context);
+  const sessionPanel      = new SessionPanelProvider(diffManager, gitDiffProvider, context);
   const workspaceWatcher  = new WorkspaceWatcher(diffManager);
   const fsHookWatcher     = new HookWatcher(diffManager);
   const navigationManager = new NavigationManager(diffManager);
@@ -39,7 +41,8 @@ export function activate(context: vscode.ExtensionContext): void {
     { dispose: () => diffManager.disposeAll() },
     { dispose: () => fsHookWatcher.dispose() },
     { dispose: () => workspaceWatcher.dispose() },
-    { dispose: () => sessionPanel.dispose() }
+    { dispose: () => sessionPanel.dispose() },
+    { dispose: () => gitDiffProvider.dispose() }
   );
 
   context.subscriptions.push(
@@ -54,6 +57,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   fsHookWatcher.start();
   workspaceWatcher.start();
+  gitDiffProvider.start();
 
   registerAllCommands({
     diffManager,
